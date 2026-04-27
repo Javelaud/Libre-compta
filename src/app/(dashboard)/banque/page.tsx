@@ -117,6 +117,36 @@ export default function BanquePage() {
     fetchCounts();
   };
 
+  // Dévalider une transaction VALIDEE → supprime l'écriture et repasse en A_CATEGORISER
+  const devaliderTransaction = async (id: string) => {
+    if (!confirm("Dévalider cette transaction ? L'écriture comptable associée sera supprimée.")) return;
+    const res = await fetch(`/api/banque/transactions/${id}/devalider`, { method: "POST" });
+    if (res.ok) {
+      fetchTransactions();
+      fetchCounts();
+    } else {
+      const data = await res.json();
+      setImportResult(data.error || "Erreur lors de la dévalidation");
+    }
+  };
+
+  // Recalcule (mode="tva" → TVA uniquement, sinon rubrique + sens + TVA)
+  const recalc = async (mode: "tva" | "all") => {
+    const res = await fetch(`/api/banque/transactions/recalc-tva?mode=${mode}`, { method: "POST" });
+    const data = await res.json();
+    if (res.ok) {
+      const msg =
+        mode === "tva"
+          ? `${data.tvaChangees} TVA recalculée(s) sur ${data.total} transaction(s)`
+          : `${data.recalculees} transaction(s) mises à jour — ${data.rubriquesChangees} rubrique(s), ${data.tvaChangees} TVA`;
+      setImportResult(msg);
+      fetchTransactions();
+      fetchCounts();
+    } else {
+      setImportResult(data.error || "Erreur lors du recalcul");
+    }
+  };
+
   // Solde
   const saveSolde = async () => {
     await fetch("/api/banque/solde", {
@@ -207,6 +237,20 @@ export default function BanquePage() {
         ))}
         <input type="text" placeholder="Rechercher..." value={search} onChange={(e) => setSearch(e.target.value)}
           className="ml-auto px-3 py-2 border border-border rounded-lg bg-card text-sm w-48 focus:outline-none focus:ring-2 focus:ring-accent" />
+        {tab === "A_CATEGORISER" && (
+          <>
+            <button onClick={() => recalc("tva")}
+              className="px-3 py-2 border border-border rounded-lg bg-card text-sm hover:bg-background transition-colors"
+              title="Recalcule uniquement la TVA des transactions à catégoriser">
+              Recalculer TVA
+            </button>
+            <button onClick={() => recalc("all")}
+              className="px-3 py-2 border border-accent text-accent rounded-lg bg-card text-sm hover:bg-accent hover:text-white transition-colors"
+              title="Réapplique tous les mots-clés (rubrique + sens + TVA) sur les transactions à catégoriser">
+              Réappliquer mots-clés
+            </button>
+          </>
+        )}
         <Link href="/banque/mots-cles" className="text-sm text-accent hover:underline">Mots-clés</Link>
       </div>
 
@@ -241,6 +285,9 @@ export default function BanquePage() {
                   <th className="text-left px-4 py-2.5 font-medium text-muted w-56">Rubrique</th>
                   {tab === "A_CATEGORISER" && (
                     <th className="text-center px-4 py-2.5 font-medium text-muted w-24">Actions</th>
+                  )}
+                  {tab === "VALIDEE" && (
+                    <th className="text-center px-4 py-2.5 font-medium text-muted w-24">Dévalider</th>
                   )}
                 </tr>
               </thead>
@@ -323,6 +370,15 @@ export default function BanquePage() {
                         </div>
                       </td>
                     )}
+                    {tab === "VALIDEE" && (
+                      <td className="px-4 py-2.5 text-center">
+                        <button onClick={() => devaliderTransaction(tx.id)}
+                          className="text-danger hover:bg-danger/10 p-1 rounded inline-flex items-center justify-center"
+                          title="Dévalider et supprimer l'écriture">
+                          <XIcon className="w-4 h-4" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -338,6 +394,14 @@ function CheckIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+    </svg>
+  );
+}
+
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
     </svg>
   );
 }

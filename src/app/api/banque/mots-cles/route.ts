@@ -21,20 +21,28 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { motCle, rubrique2035Code, sens, tauxTVA } = body;
 
-  if (!motCle || !rubrique2035Code || !sens) {
+  const motCleNorm = typeof motCle === "string" ? motCle.trim().replace(/\s+/g, " ").toUpperCase() : "";
+  if (!motCleNorm || !rubrique2035Code || !sens) {
     return NextResponse.json({ error: "Champs requis: motCle, rubrique2035Code, sens" }, { status: 400 });
   }
 
-  const created = await prisma.motCle.create({
-    data: {
-      userId: user.id,
-      motCle: motCle.toUpperCase(),
-      rubrique2035Code,
-      sens,
-      tauxTVA: Number(tauxTVA) || 0,
-    },
-    include: { rubrique2035: true },
-  });
-
-  return NextResponse.json(created, { status: 201 });
+  try {
+    const created = await prisma.motCle.create({
+      data: {
+        userId: user.id,
+        motCle: motCleNorm,
+        rubrique2035Code,
+        sens,
+        tauxTVA: Number(tauxTVA) || 0,
+      },
+      include: { rubrique2035: true },
+    });
+    return NextResponse.json(created, { status: 201 });
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    if (code === "P2002") {
+      return NextResponse.json({ error: `Le mot-clé "${motCleNorm}" existe déjà.` }, { status: 409 });
+    }
+    throw e;
+  }
 }
