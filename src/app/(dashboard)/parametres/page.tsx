@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import SoldesInitiauxSection from "@/components/parametres/SoldesInitiauxSection";
 
 const PROFESSIONS = [
   "Médecin", "Avocat", "Architecte", "Consultant", "Kinésithérapeute",
@@ -200,7 +201,7 @@ export default function ParametresPage() {
           </div>
         </div>
 
-        {/* Actions */}
+        {/* Actions profil + régime */}
         <div className="flex items-center gap-4">
           <button
             onClick={handleSave}
@@ -213,6 +214,9 @@ export default function ParametresPage() {
             <span className="text-success text-sm font-medium">Modifications enregistrées</span>
           )}
         </div>
+
+        {/* Compte professionnel — soldes initiaux */}
+        <SoldesInitiauxSection />
       </div>
     </div>
   );

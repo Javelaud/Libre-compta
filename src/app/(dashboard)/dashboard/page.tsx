@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useYear } from "@/contexts/YearContext";
+import YearPicker from "@/components/ui/YearPicker";
 import {
   BarChart,
   Bar,
@@ -47,6 +48,7 @@ export default function DashboardPage() {
   const [balance, setBalance] = useState<BalanceData | null>(null);
   const [ecritures, setEcritures] = useState<Ecriture[]>([]);
   const [mensuel, setMensuel] = useState<MoisData[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
   const annee = year;
 
   useEffect(() => {
@@ -67,14 +69,50 @@ export default function DashboardPage() {
           setMensuel(mens);
         });
       });
+    fetch("/api/banque/count")
+      .then((r) => (r.ok ? r.json() : { count: 0 }))
+      .then((d) => setPendingCount(d.count ?? 0))
+      .catch(() => {});
   }, [year]);
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-primary mb-1">Tableau de bord</h1>
-      <p className="text-muted mb-8">
-        {annee ? `Vue d'ensemble de votre exercice ${annee}` : "Chargement..."}
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+        <div>
+          <h1 className="text-2xl font-bold text-primary mb-1">Tableau de bord</h1>
+          <p className="text-muted">Vue d&apos;ensemble de votre exercice {annee}</p>
+        </div>
+        <YearPicker />
+      </div>
+
+      {/* Bandeau transactions en attente */}
+      {pendingCount > 0 && (
+        <Link
+          href="/banque"
+          className="block bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 hover:bg-amber-100 transition-colors group"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-200 flex items-center justify-center text-amber-800">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-semibold text-amber-900">
+                  {pendingCount.toLocaleString("fr-FR")} transaction{pendingCount > 1 ? "s" : ""} bancaire{pendingCount > 1 ? "s" : ""} en attente de catégorisation
+                </p>
+                <p className="text-sm text-amber-800/80">
+                  Le tableau de bord ne reflète que les écritures validées. Catégorise et valide les transactions pour les voir ici.
+                </p>
+              </div>
+            </div>
+            <span className="text-amber-900 font-medium text-sm whitespace-nowrap group-hover:underline">
+              Catégoriser →
+            </span>
+          </div>
+        </Link>
+      )}
 
       {/* KPI */}
       <div className="grid md:grid-cols-3 gap-6 mb-8">

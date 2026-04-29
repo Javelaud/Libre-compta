@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { parseCSVBancaire } from "@/lib/banque/parseCSV";
+import { parseRelevéBancaire } from "@/lib/banque/parseReleve";
 import { matchMotsCles } from "@/lib/banque/matchMotsCles";
 
 export async function POST(request: NextRequest) {
@@ -11,16 +11,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Fichier requis" }, { status: 400 });
   }
 
-  const content = await file.text();
-
   // Trouver l'utilisateur (dev: premier utilisateur)
   const user = await prisma.user.findFirst();
   if (!user) {
     return NextResponse.json({ error: "Utilisateur non trouvé" }, { status: 401 });
   }
 
-  // Parser le CSV
-  const transactions = parseCSVBancaire(content);
+  // Parser le fichier (XLSX ou CSV — détecté automatiquement par SheetJS)
+  const buffer = await file.arrayBuffer();
+  const transactions = await parseRelevéBancaire(buffer);
   if (transactions.length === 0) {
     return NextResponse.json({ error: "Aucune transaction trouvée dans le fichier" }, { status: 400 });
   }

@@ -125,7 +125,21 @@ model CompteBancaire {
   solde     Float    @default(0)
   updatedAt DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  soldesInitiaux  SoldeInitial[]
+}
+
+model SoldeInitial {
+  id               String   @id @default(cuid())
+  compteBancaireId String
+  annee            Int
+  montant          Float    @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  compteBancaire CompteBancaire @relation(fields: [compteBancaireId], references: [id], onDelete: Cascade)
+
+  @@unique([compteBancaireId, annee])
 }
 
 // ─── Déclaration 2035 ────────────────────────────────────

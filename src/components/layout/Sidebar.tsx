@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useYear, YEARS_AVAILABLE } from "@/contexts/YearContext";
 
 type NavItem = {
   name: string;
@@ -89,27 +88,11 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Footer — sélecteur d'année */}
-      <YearSelector />
+      {/* Footer */}
+      <div className="px-6 py-4 border-t border-white/10">
+        <p className="text-xs text-sidebar-text/60">Libre Compta BNC</p>
+      </div>
     </aside>
-  );
-}
-
-function YearSelector() {
-  const { year, setYear } = useYear();
-  return (
-    <div className="px-4 py-3 border-t border-white/10">
-      <label className="text-xs text-sidebar-text/60 block mb-1">Exercice fiscal</label>
-      <select
-        value={year}
-        onChange={(e) => setYear(Number(e.target.value))}
-        className="w-full bg-white/10 text-white text-sm rounded-md px-2 py-1.5 border border-white/10 focus:outline-none focus:ring-1 focus:ring-white/30 cursor-pointer hover:bg-white/15 transition-colors"
-      >
-        {YEARS_AVAILABLE.map((y) => (
-          <option key={y} value={y} className="text-foreground">{y}</option>
-        ))}
-      </select>
-    </div>
   );
 }
 

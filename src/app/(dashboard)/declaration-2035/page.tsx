@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import type { Calcul2035 } from "@/lib/calculs2035";
 import { exportDeclaration2035PDF } from "@/lib/export2035PDF";
-import { useYear, YEARS_AVAILABLE } from "@/contexts/YearContext";
+import { useYear } from "@/contexts/YearContext";
+import YearPicker from "@/components/ui/YearPicker";
 
 type Data = Calcul2035 & {
   declaration: { id: string; statut: string; validatedAt: string | null } | null;
@@ -24,10 +25,8 @@ const CODES_DEPENSES = [
 ] as const;
 
 export default function Declaration2035Page() {
-  const { year, setYear } = useYear();
+  const { year } = useYear();
   const annee = year;
-  const setAnnee = setYear;
-  const annees = YEARS_AVAILABLE;
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -81,15 +80,7 @@ export default function Declaration2035Page() {
           <p className="text-muted">Revenus non commerciaux — Génération automatique</p>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            value={annee}
-            onChange={(e) => setAnnee(Number(e.target.value))}
-            className="px-3 py-2 border border-border rounded-lg bg-card text-sm"
-          >
-            {annees.map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+          <YearPicker />
           <button
             onClick={exporter}
             className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-light transition-colors"

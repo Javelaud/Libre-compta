@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import ExportCSV from "@/components/ExportCSV";
 import { useYear } from "@/contexts/YearContext";
+import YearPicker from "@/components/ui/YearPicker";
 
 type LigneBalance = {
   code: string;
@@ -71,12 +72,15 @@ export default function BalancePage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-primary mb-1">Balance</h1>
           <p className="text-muted">Synthèse des totaux par rubrique 2035</p>
         </div>
-        <ExportCSV data={csvData} filename="balance-2035" />
+        <div className="flex items-center gap-2">
+          <YearPicker />
+          <ExportCSV data={csvData} filename="balance-2035" />
+        </div>
       </div>
 
       {/* Résumé en cartes */}

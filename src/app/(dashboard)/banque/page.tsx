@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import RubriqueCombobox from "@/components/ui/RubriqueCombobox";
+import YearPicker from "@/components/ui/YearPicker";
+import { useYear } from "@/contexts/YearContext";
 
 type Rubrique = { code: string; libelle: string; type: string };
 type Transaction = {
@@ -24,16 +26,14 @@ const fmtDate = (d: string) =>
   new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 export default function BanquePage() {
+  const { year } = useYear();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [rubriques, setRubriques] = useState<Rubrique[]>([]);
-  const [solde, setSolde] = useState(0);
-  const [compteNom, setCompteNom] = useState("");
+  const [soldeInitial, setSoldeInitial] = useState<number | null>(null);
   const [tab, setTab] = useState("A_CATEGORISER");
   const [loading, setLoading] = useState(true);
   const [showImport, setShowImport] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
-  const [editSolde, setEditSolde] = useState(false);
-  const [newSolde, setNewSolde] = useState("");
   const [search, setSearch] = useState("");
   const [counts, setCounts] = useState({ aCat: 0, val: 0, ign: 0 });
   const [showTVA, setShowTVA] = useState(false);
@@ -62,20 +62,26 @@ export default function BanquePage() {
     });
   };
 
-  // Solde progressif : la dernière (la plus récente) ligne affichée vaut le solde compte courant ;
-  // on remonte chronologiquement en soustrayant chaque montant.
+  // Solde progressif : on part du SoldeInitial(year) et on accumule chronologiquement.
+  // Si pas de SoldeInitial saisi, on part de 0 (un avertissement est affiché).
   const soldesProgressifs = useMemo(() => {
     const map: Record<string, number> = {};
     if (transactions.length === 0) return map;
-    const sumAll = transactions.reduce((s, t) => s + t.montant, 0);
-    let cum = solde - sumAll; // solde "avant" la 1ère opération chronologique
+    let cum = soldeInitial ?? 0;
     // transactions arrivent en DESC date — on itère en ASC chronologique
     for (let i = transactions.length - 1; i >= 0; i--) {
       cum += transactions[i].montant;
       map[transactions[i].id] = cum;
     }
     return map;
-  }, [transactions, solde]);
+  }, [transactions, soldeInitial]);
+
+  // Solde calculé à fin d'exercice = dernière valeur cumulée (= la 1ère ligne affichée en DESC)
+  const soldeFinal = useMemo(() => {
+    if (transactions.length === 0) return soldeInitial;
+    const sumAll = transactions.reduce((s, t) => s + t.montant, 0);
+    return (soldeInitial ?? 0) + sumAll;
+  }, [transactions, soldeInitial]);
 
   const bulkDelete = async () => {
     if (selected.size === 0) return;
@@ -101,15 +107,61 @@ export default function BanquePage() {
     }
   };
 
+  const restaurerTransaction = async (id: string) => {
+    const res = await fetch(`/api/banque/transactions/${id}/restaurer`, { method: "POST" });
+    if (res.ok) {
+      fetchTransactions();
+      fetchCounts();
+    } else {
+      const data = await res.json();
+      setImportResult(data.error || "Erreur lors de la restauration");
+    }
+  };
+
+  const bulkRestore = async () => {
+    if (selected.size === 0) return;
+    const res = await fetch("/api/banque/transactions/bulk-restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setImportResult(`${data.restored} transaction(s) restaurée(s) en À catégoriser`);
+      setSelected(new Set());
+      fetchTransactions();
+      fetchCounts();
+    } else {
+      setImportResult(data.error || "Erreur de restauration");
+    }
+  };
+
+  const bulkValidate = async () => {
+    if (selected.size === 0) return;
+    const res = await fetch("/api/banque/transactions/bulk-validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      const parts = [`${data.validees} transaction(s) validée(s)`];
+      if (data.skipped > 0) parts.push(`${data.skipped} ignorée(s) (rubrique manquante)`);
+      setImportResult(parts.join(" — "));
+      setSelected(new Set());
+      fetchTransactions();
+      fetchCounts();
+    } else {
+      setImportResult(data.error || "Erreur de validation");
+    }
+  };
+
   useEffect(() => {
     Promise.all([
       fetch("/api/rubriques").then((r) => r.json()),
-      fetch("/api/banque/solde").then((r) => r.json()),
       fetch("/api/user/profil").then((r) => r.json()),
-    ]).then(([rub, compte, profil]) => {
+    ]).then(([rub, profil]) => {
       setRubriques(rub);
-      setSolde(compte.solde ?? 0);
-      setCompteNom(compte.nom ?? "Compte");
       if (profil?.regimeTVA) {
         setShowTVA(["REEL_MENSUEL", "REEL_TRIMESTRIEL", "REEL_ANNUEL"].includes(profil.regimeTVA));
         setTauxTVA(profil.tauxTVA ?? 20);
@@ -117,23 +169,34 @@ export default function BanquePage() {
     });
   }, []);
 
+  // Charge le solde initial pour l'année sélectionnée
+  useEffect(() => {
+    setSoldeInitial(null);
+    fetch(`/api/banque/solde-final?annee=${year}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d) setSoldeInitial(typeof d.soldeInitial === "number" ? d.soldeInitial : null);
+      })
+      .catch(() => {});
+  }, [year]);
+
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
-    const params = new URLSearchParams({ statut: tab });
+    const params = new URLSearchParams({ statut: tab, annee: String(year) });
     if (search) params.set("q", search);
     const res = await fetch(`/api/banque/transactions?${params}`);
     if (res.ok) setTransactions(await res.json());
     setLoading(false);
-  }, [tab, search]);
+  }, [tab, search, year]);
 
   const fetchCounts = useCallback(async () => {
     const [a, v, i] = await Promise.all([
-      fetch("/api/banque/transactions?statut=A_CATEGORISER").then((r) => r.json()),
-      fetch("/api/banque/transactions?statut=VALIDEE").then((r) => r.json()),
-      fetch("/api/banque/transactions?statut=IGNOREE").then((r) => r.json()),
+      fetch(`/api/banque/transactions?statut=A_CATEGORISER&annee=${year}`).then((r) => r.json()),
+      fetch(`/api/banque/transactions?statut=VALIDEE&annee=${year}`).then((r) => r.json()),
+      fetch(`/api/banque/transactions?statut=IGNOREE&annee=${year}`).then((r) => r.json()),
     ]);
     setCounts({ aCat: a.length, val: v.length, ign: i.length });
-  }, []);
+  }, [year]);
 
   useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
   useEffect(() => { fetchCounts(); }, [fetchCounts]);
@@ -241,40 +304,53 @@ export default function BanquePage() {
     }
   };
 
-  // Solde
-  const saveSolde = async () => {
-    await fetch("/api/banque/solde", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ solde: parseFloat(newSolde) }),
-    });
-    setSolde(parseFloat(newSolde));
-    setEditSolde(false);
-  };
-
   return (
     <div>
-      <h1 className="text-2xl font-bold text-primary mb-1">Banque</h1>
-      <p className="text-muted mb-6">Importez et catégorisez vos relevés bancaires</p>
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-primary mb-1">Banque</h1>
+          <p className="text-muted">Importez et catégorisez vos relevés bancaires</p>
+        </div>
+        <YearPicker />
+      </div>
 
-      {/* Zone haute — Solde + Import */}
-      <div className="grid md:grid-cols-2 gap-4 mb-6">
+      {/* Zone haute — Soldes (initial + final) + Import */}
+      {soldeInitial === null ? (
+        <Link href="/parametres" className="block bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 hover:bg-amber-100 transition-colors">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-200 flex items-center justify-center text-amber-800">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.732 0 2.814-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-semibold text-amber-900">Solde initial non renseigné pour {year}</p>
+                <p className="text-sm text-amber-800/80">Les soldes affichés partent de 0. Renseignez le solde au 01/01/{year} dans les paramètres pour caler le solde progressif sur la réalité du compte.</p>
+              </div>
+            </div>
+            <span className="text-amber-900 font-medium text-sm whitespace-nowrap group-hover:underline">Renseigner →</span>
+          </div>
+        </Link>
+      ) : null}
+
+      <div className="grid md:grid-cols-3 gap-4 mb-6">
         <div className="bg-card rounded-xl border border-border p-5">
           <div className="flex items-center justify-between mb-1">
-            <p className="text-sm text-muted">{compteNom}</p>
-            <button onClick={() => { setEditSolde(!editSolde); setNewSolde(String(solde)); }} className="text-muted hover:text-accent text-xs">
-              Modifier
-            </button>
+            <p className="text-sm text-muted">Solde au 01/01/{year}</p>
+            <Link href="/parametres" className="text-muted hover:text-accent text-xs" title="Modifier dans les paramètres">
+              ✏ Modifier
+            </Link>
           </div>
-          {editSolde ? (
-            <div className="flex gap-2 items-center">
-              <input type="number" step="0.01" value={newSolde} onChange={(e) => setNewSolde(e.target.value)}
-                className="px-2 py-1 border border-border rounded text-lg font-bold w-40" autoFocus />
-              <button onClick={saveSolde} className="text-success text-sm font-medium">OK</button>
-            </div>
-          ) : (
-            <p className={`text-3xl font-bold ${solde >= 0 ? "text-success" : "text-danger"}`}>{fmt(solde)}</p>
-          )}
+          <p className={`text-2xl font-bold ${(soldeInitial ?? 0) >= 0 ? "text-foreground" : "text-danger"}`}>
+            {soldeInitial !== null ? fmt(soldeInitial) : "—"}
+          </p>
+        </div>
+        <div className="bg-card rounded-xl border border-border p-5">
+          <p className="text-sm text-muted mb-1">Solde calculé fin {year}</p>
+          <p className={`text-2xl font-bold ${(soldeFinal ?? 0) >= 0 ? "text-success" : "text-danger"}`}>
+            {soldeFinal !== null ? fmt(soldeFinal) : "—"}
+          </p>
         </div>
         <div className="bg-card rounded-xl border border-border p-5 flex items-center justify-center">
           <button onClick={() => setShowImport(true)}
@@ -371,12 +447,30 @@ export default function BanquePage() {
           <TagIcon className="w-4 h-4" />
         </Link>
         {selected.size > 0 && (
-          <button onClick={bulkDelete}
-            className="px-3 py-2 bg-danger text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors inline-flex items-center gap-1.5"
-            title="Supprimer les transactions sélectionnées (et leurs écritures comptables liées)">
-            <TrashIcon className="w-4 h-4" />
-            Supprimer ({selected.size})
-          </button>
+          <>
+            {tab === "A_CATEGORISER" && (
+              <button onClick={bulkValidate}
+                className="px-3 py-2 bg-success text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors inline-flex items-center gap-1.5"
+                title="Valider les transactions sélectionnées (celles sans rubrique seront ignorées)">
+                <CheckIcon className="w-4 h-4" />
+                Valider ({selected.size})
+              </button>
+            )}
+            {tab === "IGNOREE" && (
+              <button onClick={bulkRestore}
+                className="px-3 py-2 border border-accent text-accent rounded-lg bg-card text-sm font-medium hover:bg-accent hover:text-white transition-colors inline-flex items-center gap-1.5"
+                title="Repasser les transactions sélectionnées en À catégoriser">
+                <RestoreIcon className="w-4 h-4" />
+                Restaurer ({selected.size})
+              </button>
+            )}
+            <button onClick={bulkDelete}
+              className="px-3 py-2 bg-danger text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors inline-flex items-center gap-1.5"
+              title="Supprimer les transactions sélectionnées (et leurs écritures comptables liées)">
+              <TrashIcon className="w-4 h-4" />
+              Supprimer ({selected.size})
+            </button>
+          </>
         )}
       </div>
 
@@ -425,6 +519,9 @@ export default function BanquePage() {
                   )}
                   {tab === "VALIDEE" && (
                     <th className="text-center px-4 py-2.5 font-medium text-muted w-24">Dévalider</th>
+                  )}
+                  {tab === "IGNOREE" && (
+                    <th className="text-center px-4 py-2.5 font-medium text-muted w-24">Restaurer</th>
                   )}
                 </tr>
               </thead>
@@ -530,6 +627,15 @@ export default function BanquePage() {
                         </button>
                       </td>
                     )}
+                    {tab === "IGNOREE" && (
+                      <td className="px-4 py-2.5 text-center">
+                        <button onClick={() => restaurerTransaction(tx.id)}
+                          className="text-accent hover:bg-accent/10 p-1 rounded inline-flex items-center justify-center"
+                          title="Restaurer en À catégoriser">
+                          <RestoreIcon className="w-4 h-4" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -611,6 +717,14 @@ function SpinnerIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24">
       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" strokeDasharray="50" strokeDashoffset="20" />
+    </svg>
+  );
+}
+
+function RestoreIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
     </svg>
   );
 }

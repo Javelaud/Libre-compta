@@ -3,27 +3,48 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
 const STORAGE_KEY = "libre-compta-selected-year";
-const DEFAULT_YEAR = 2025;
-export const YEARS_AVAILABLE = Array.from({ length: 16 }, (_, i) => 2025 - i); // 2025 → 2010
 
 type Ctx = {
   year: number;
   setYear: (y: number) => void;
+  available: number[];
+  loading: boolean;
 };
 
 const YearContext = createContext<Ctx | null>(null);
 
 export function YearProvider({ children }: { children: React.ReactNode }) {
-  const [year, setYearState] = useState<number>(DEFAULT_YEAR);
+  const currentYear = new Date().getFullYear();
+  const [year, setYearState] = useState<number>(currentYear);
+  const [available, setAvailable] = useState<number[]>([currentYear]);
+  const [loading, setLoading] = useState(true);
 
+  // Charge la liste dynamique des années depuis l'API
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const n = Number(saved);
-      if (YEARS_AVAILABLE.includes(n)) setYearState(n);
-    }
-  }, []);
+    fetch("/api/exercice/list")
+      .then((r) => (r.ok ? r.json() : [currentYear]))
+      .then((years: number[]) => {
+        const list = years.length > 0 ? years : [currentYear];
+        setAvailable(list);
+
+        // Restaure le choix précédent si valide, sinon prend la plus récente
+        if (typeof window !== "undefined") {
+          const saved = window.localStorage.getItem(STORAGE_KEY);
+          const savedNum = saved ? Number(saved) : NaN;
+          if (savedNum && list.includes(savedNum)) {
+            setYearState(savedNum);
+          } else {
+            setYearState(list[0]);
+          }
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setAvailable([currentYear]);
+        setYearState(currentYear);
+        setLoading(false);
+      });
+  }, [currentYear]);
 
   const setYear = (y: number) => {
     setYearState(y);
@@ -32,7 +53,11 @@ export function YearProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  return <YearContext.Provider value={{ year, setYear }}>{children}</YearContext.Provider>;
+  return (
+    <YearContext.Provider value={{ year, setYear, available, loading }}>
+      {children}
+    </YearContext.Provider>
+  );
 }
 
 export function useYear(): Ctx {

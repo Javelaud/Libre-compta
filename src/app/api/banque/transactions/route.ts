@@ -5,6 +5,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const statut = searchParams.get("statut") || "A_CATEGORISER";
   const mois = searchParams.get("mois");
+  const annee = searchParams.get("annee");
   const search = searchParams.get("q");
 
   const user = await prisma.user.findFirst();
@@ -13,10 +14,16 @@ export async function GET(request: NextRequest) {
   const where: Record<string, unknown> = { userId: user.id, statut };
 
   if (mois) {
-    const [annee, m] = mois.split("-").map(Number);
+    const [a, m] = mois.split("-").map(Number);
     where.date = {
-      gte: new Date(annee, m - 1, 1),
-      lt: new Date(annee, m, 1),
+      gte: new Date(a, m - 1, 1),
+      lt: new Date(a, m, 1),
+    };
+  } else if (annee) {
+    const a = Number(annee);
+    where.date = {
+      gte: new Date(a, 0, 1),
+      lt: new Date(a + 1, 0, 1),
     };
   }
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import FormulaireEcriture from "@/components/saisie/FormulaireEcriture";
 import ListeEcritures from "@/components/saisie/ListeEcritures";
 import { useYear } from "@/contexts/YearContext";
+import YearPicker from "@/components/ui/YearPicker";
 
 type UserProfil = { regimeTVA: string; tauxTVA: number };
 
@@ -52,8 +53,13 @@ export default function SaisiePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-primary mb-1">Notes de frais</h1>
-      <p className="text-muted mb-6">Dépenses ou recettes payées avec votre compte personnel à prendre en charge par l&apos;activité professionnelle</p>
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-primary mb-1">Notes de frais</h1>
+          <p className="text-muted">Dépenses ou recettes payées avec votre compte personnel à prendre en charge par l&apos;activité professionnelle</p>
+        </div>
+        <YearPicker />
+      </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
         <FormulaireEcriture

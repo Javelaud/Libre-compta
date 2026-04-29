@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import ExportCSV from "@/components/ExportCSV";
 import RubriqueCombobox from "@/components/ui/RubriqueCombobox";
 import { useYear } from "@/contexts/YearContext";
+import YearPicker from "@/components/ui/YearPicker";
 
 type EcritureLigne = {
   id: string;
@@ -111,12 +112,15 @@ export default function GrandLivrePage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-primary mb-1">Grand livre</h1>
           <p className="text-muted">Détail des écritures par rubrique 2035</p>
         </div>
-        <ExportCSV data={csvData} filename={`grand-livre-${annee}`} />
+        <div className="flex items-center gap-2">
+          <YearPicker />
+          <ExportCSV data={csvData} filename={`grand-livre-${annee}`} />
+        </div>
       </div>
 
       {/* Filtres */}
