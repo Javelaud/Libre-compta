@@ -10,37 +10,44 @@ export type TransactionBrute = {
   montant: number;
 };
 
+const stripDiacritics = (s: string) =>
+  s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+const normalizeHeader = (h: string) =>
+  stripDiacritics(h.replace(/^﻿/, "").replace(/"/g, "").trim().toLowerCase());
+
 export function parseCSVBancaire(content: string): TransactionBrute[] {
-  const lines = content.split(/\r?\n/).filter((l) => l.trim());
+  // Strip BOM en tête de fichier
+  const cleaned = content.replace(/^﻿/, "");
+  const lines = cleaned.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return [];
 
-  // Détecter le séparateur
-  const firstLine = lines[0];
-  const sep = firstLine.includes(";") ? ";" : firstLine.includes("\t") ? "\t" : ",";
+  // Détecter le séparateur en cherchant celui qui fragmente le mieux la 1ère ligne
+  const candidates = [";", "\t", ","];
+  const sep =
+    candidates
+      .map((c) => ({ c, n: lines[0].split(c).length }))
+      .sort((a, b) => b.n - a.n)[0].c;
 
-  const headers = lines[0].split(sep).map((h) => h.replace(/"/g, "").trim().toLowerCase());
+  const headers = lines[0].split(sep).map(normalizeHeader);
 
-  // Trouver les colonnes
+  // Trouver les colonnes (matching par mots-clés, pas exact)
   const dateIdx = headers.findIndex((h) =>
-    ["date", "date opération", "date operation", "date comptable", "date valeur"].includes(h)
+    /\bdate\b/.test(h)
   );
   const libelleIdx = headers.findIndex((h) =>
-    ["libellé", "libelle", "description", "libellé opération", "libelle operation", "détail", "detail"].includes(h)
+    /libelle|description|detail|operation/.test(h)
   );
 
   // Montant : colonne unique ou débit/crédit séparés
   const montantIdx = headers.findIndex((h) =>
-    ["montant", "montant (eur)", "montant(eur)", "amount"].includes(h)
+    /^montant\b|^amount\b/.test(h) && !/debit|credit/.test(h)
   );
-  const debitIdx = headers.findIndex((h) =>
-    ["débit", "debit", "débit (eur)", "debit (eur)"].includes(h)
-  );
-  const creditIdx = headers.findIndex((h) =>
-    ["crédit", "credit", "crédit (eur)", "credit (eur)"].includes(h)
-  );
+  const debitIdx = headers.findIndex((h) => /\bdebit\b/.test(h));
+  const creditIdx = headers.findIndex((h) => /\bcredit\b/.test(h));
 
+  // Fallback positionnel si on n'a pas trouvé les colonnes essentielles
   if (dateIdx === -1 || libelleIdx === -1) {
-    // Fallback : essayer col 0 = date, col 1 = libellé, col 2 = montant
     return parseSimple(lines.slice(1), sep);
   }
 
@@ -59,7 +66,17 @@ export function parseCSVBancaire(content: string): TransactionBrute[] {
     } else if (debitIdx !== -1 || creditIdx !== -1) {
       const debit = debitIdx !== -1 ? parseMontant(cols[debitIdx]) : 0;
       const credit = creditIdx !== -1 ? parseMontant(cols[creditIdx]) : 0;
-      montant = credit > 0 ? credit : -Math.abs(debit);
+      // Le débit est une dépense (négatif), le crédit une recette (positif)
+      // Si la valeur du débit est déjà négative dans le CSV, on respecte son signe.
+      // Si elle est positive, on inverse le signe (convention française : valeur absolue dans la colonne débit).
+      if (credit !== 0 && debit === 0) {
+        montant = Math.abs(credit);
+      } else if (debit !== 0 && credit === 0) {
+        montant = -Math.abs(debit);
+      } else if (debit !== 0 && credit !== 0) {
+        // Les deux remplis : prendre la différence (cas exotique mais possible)
+        montant = Math.abs(credit) - Math.abs(debit);
+      }
     }
 
     const date = parseDate(dateStr);
@@ -78,7 +95,18 @@ function parseSimple(lines: string[], sep: string): TransactionBrute[] {
     if (cols.length < 3) continue;
     const date = parseDate(cols[0]?.replace(/"/g, "").trim());
     const libelle = cols[1]?.replace(/"/g, "").trim();
-    const montant = parseMontant(cols[2]);
+
+    let montant = 0;
+    // Si on a 4+ colonnes : tenter cols[2]=débit, cols[3]=crédit (cas BNP/CA)
+    if (cols.length >= 4) {
+      const debit = parseMontant(cols[2]);
+      const credit = parseMontant(cols[3]);
+      if (credit !== 0 && debit === 0) montant = Math.abs(credit);
+      else if (debit !== 0 && credit === 0) montant = -Math.abs(debit);
+      else if (debit !== 0 && credit !== 0) montant = Math.abs(credit) - Math.abs(debit);
+    }
+    if (montant === 0) montant = parseMontant(cols[2]); // fallback : col 2 = montant signé
+
     if (date && libelle && montant !== 0) {
       results.push({ date, libelle, montant });
     }
@@ -106,7 +134,8 @@ function splitCSVLine(line: string, sep: string): string[] {
 
 function parseMontant(str: string | undefined): number {
   if (!str) return 0;
-  const cleaned = str.replace(/"/g, "").replace(/\s/g, "").replace(",", ".");
+  const cleaned = str.replace(/"/g, "").replace(/\s/g, "").replace(/ /g, "").replace(",", ".");
+  if (!cleaned) return 0;
   const n = parseFloat(cleaned);
   return isNaN(n) ? 0 : n;
 }

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import ExportCSV from "@/components/ExportCSV";
+import RubriqueCombobox from "@/components/ui/RubriqueCombobox";
+import { useYear } from "@/contexts/YearContext";
 
 type EcritureLigne = {
   id: string;
@@ -38,6 +40,7 @@ const formatDate = (d: string) =>
   new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 export default function GrandLivrePage() {
+  const { year } = useYear();
   const [exerciceId, setExerciceId] = useState<string | null>(null);
   const [groupes, setGroupes] = useState<Groupe[]>([]);
   const [rubriques, setRubriques] = useState<RubriqueOption[]>([]);
@@ -47,30 +50,29 @@ export default function GrandLivrePage() {
   const [filtreMois, setFiltreMois] = useState("");
   const [filtreRubrique, setFiltreRubrique] = useState("");
 
-  const [annee, setAnnee] = useState(0);
+  const annee = year;
   const [moisOptions, setMoisOptions] = useState<{ value: string; label: string }[]>([]);
 
   useEffect(() => {
-    const a = new Date().getFullYear();
-    setAnnee(a);
     setMoisOptions(
       Array.from({ length: 12 }, (_, i) => {
         const m = String(i + 1).padStart(2, "0");
-        const label = new Date(a, i).toLocaleDateString("fr-FR", { month: "long" });
-        return { value: `${a}-${m}`, label: `${label} ${a}` };
+        const label = new Date(year, i).toLocaleDateString("fr-FR", { month: "long" });
+        return { value: `${year}-${m}`, label: `${label} ${year}` };
       })
     );
-  }, []);
+  }, [year]);
 
   useEffect(() => {
+    setExerciceId(null);
     Promise.all([
-      fetch("/api/exercice/courant").then((r) => (r.ok ? r.json() : null)),
+      fetch(`/api/exercice/courant?annee=${year}`).then((r) => (r.ok ? r.json() : null)),
       fetch("/api/rubriques").then((r) => r.json()),
     ]).then(([ex, rub]) => {
       if (ex?.id) setExerciceId(ex.id);
       setRubriques(rub);
     });
-  }, []);
+  }, [year]);
 
   const fetchData = useCallback(async () => {
     if (!exerciceId) return;
@@ -138,16 +140,16 @@ export default function GrandLivrePage() {
             <option key={m.value} value={m.value}>{m.label}</option>
           ))}
         </select>
-        <select
-          value={filtreRubrique}
-          onChange={(e) => setFiltreRubrique(e.target.value)}
-          className="px-3 py-2 border border-border rounded-lg bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-        >
-          <option value="">Toutes les rubriques</option>
-          {rubriques.map((r) => (
-            <option key={r.code} value={r.code}>{r.code} — {r.libelle}</option>
-          ))}
-        </select>
+        <div className="w-64">
+          <RubriqueCombobox
+            rubriques={rubriques}
+            value={filtreRubrique}
+            onChange={(code) => setFiltreRubrique(code)}
+            placeholder="Toutes les rubriques"
+            emptyLabel="Toutes les rubriques"
+            allowEmpty
+          />
+        </div>
       </div>
 
       {/* Résumé */}

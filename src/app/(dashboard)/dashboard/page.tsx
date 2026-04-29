@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useYear } from "@/contexts/YearContext";
 import {
   BarChart,
   Bar,
@@ -42,17 +43,20 @@ const formatDate = (d: string) =>
   new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 export default function DashboardPage() {
+  const { year } = useYear();
   const [balance, setBalance] = useState<BalanceData | null>(null);
   const [ecritures, setEcritures] = useState<Ecriture[]>([]);
   const [mensuel, setMensuel] = useState<MoisData[]>([]);
-  const [annee, setAnnee] = useState(0);
+  const annee = year;
 
   useEffect(() => {
-    fetch("/api/exercice/courant")
+    setBalance(null);
+    setEcritures([]);
+    setMensuel([]);
+    fetch(`/api/exercice/courant?annee=${year}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!data?.id) return;
-        setAnnee(data.annee);
         Promise.all([
           fetch(`/api/balance?exerciceId=${data.id}`).then((r) => r.json()),
           fetch(`/api/ecritures?exerciceId=${data.id}`).then((r) => r.json()),
@@ -63,7 +67,7 @@ export default function DashboardPage() {
           setMensuel(mens);
         });
       });
-  }, []);
+  }, [year]);
 
   return (
     <div>

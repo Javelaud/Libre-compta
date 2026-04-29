@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import RubriqueCombobox from "@/components/ui/RubriqueCombobox";
 
 type Rubrique = { code: string; libelle: string; type: string };
 type MotCle = {
@@ -98,16 +99,16 @@ export default function MotsClesPage() {
           </div>
           <div className="flex-1 min-w-[180px]">
             <label className="block text-xs font-medium text-muted mb-1">Rubrique 2035</label>
-            <select value={newRubrique} onChange={(e) => {
-              setNewRubrique(e.target.value);
-              const rub = rubriques.find((r) => r.code === e.target.value);
-              if (rub) setNewSens(rub.type);
-            }} className={inputClass + " w-full"}>
-              <option value="">— Sélectionner —</option>
-              {rubriques.map((r) => (
-                <option key={r.code} value={r.code}>{r.code} — {r.libelle}</option>
-              ))}
-            </select>
+            <RubriqueCombobox
+              rubriques={rubriques}
+              value={newRubrique}
+              onChange={(code, rub) => {
+                setNewRubrique(code);
+                if (rub?.type) setNewSens(rub.type);
+              }}
+              placeholder="— Sélectionner —"
+              allowEmpty={false}
+            />
           </div>
           <div className="w-32">
             <label className="block text-xs font-medium text-muted mb-1">Sens</label>

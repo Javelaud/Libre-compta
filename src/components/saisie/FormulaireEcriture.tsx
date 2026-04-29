@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { useCallback, useEffect, useState } from "react";
 import { suggererRubrique } from "@/lib/categorisation";
 import type { EcritureFormData } from "@/lib/validations/ecriture";
+import RubriqueCombobox from "@/components/ui/RubriqueCombobox";
 
 type Rubrique = { code: string; libelle: string; type: "RECETTE" | "DEPENSE" };
 
@@ -185,17 +186,17 @@ export default function FormulaireEcriture({ exerciceId, showTVA, tauxTVA, onCre
       {/* Rubrique 2035 */}
       <div className="mt-4">
         <label className="block text-sm font-medium text-foreground mb-1">Rubrique 2035</label>
-        <select
+        <input
+          type="hidden"
           {...register("rubrique2035Code", { required: "Rubrique requise" })}
-          className={inputClass}
-        >
-          <option value="">— Sélectionner une rubrique —</option>
-          {rubriquesFiltered.map((r) => (
-            <option key={r.code} value={r.code}>
-              {r.code} — {r.libelle}
-            </option>
-          ))}
-        </select>
+        />
+        <RubriqueCombobox
+          rubriques={rubriquesFiltered}
+          value={watch("rubrique2035Code") ?? ""}
+          onChange={(code) => setValue("rubrique2035Code", code, { shouldValidate: true })}
+          placeholder="— Sélectionner une rubrique —"
+          allowEmpty={false}
+        />
         {errors.rubrique2035Code && (
           <p className="text-danger text-xs mt-1">{errors.rubrique2035Code.message}</p>
         )}

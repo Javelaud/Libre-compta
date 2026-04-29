@@ -20,14 +20,18 @@ export async function POST(
     );
   }
 
-  const exercice = await prisma.exerciceFiscal.findFirst({
-    where: { userId: transaction.userId, statut: "OUVERT" },
-    orderBy: { annee: "desc" },
+  // L'écriture est rattachée à l'exercice de l'année de la transaction (créé si manquant)
+  const anneeTx = transaction.date.getFullYear();
+  const exercice = await prisma.exerciceFiscal.upsert({
+    where: { userId_annee: { userId: transaction.userId, annee: anneeTx } },
+    update: {},
+    create: {
+      userId: transaction.userId,
+      annee: anneeTx,
+      dateDebut: new Date(`${anneeTx}-01-01`),
+      dateFin: new Date(`${anneeTx}-12-31`),
+    },
   });
-
-  if (!exercice) {
-    return NextResponse.json({ error: "Aucun exercice ouvert" }, { status: 400 });
-  }
 
   const tvaAmount = transaction.tva ?? 0;
   const ecriture = await prisma.ecritureComptable.create({

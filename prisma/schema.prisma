@@ -27,6 +27,7 @@ model User {
   transactionsBancaires TransactionBancaire[]
   motsCles           MotCle[]
   comptesBancaires   CompteBancaire[]
+  declarations2035   Declaration2035[]
 
   // NextAuth
   accounts Account[]
@@ -125,6 +126,23 @@ model CompteBancaire {
   updatedAt DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Déclaration 2035 ────────────────────────────────────
+
+model Declaration2035 {
+  id           String    @id @default(cuid())
+  userId       String
+  annee        Int
+  statut       String    @default("BROUILLON")
+  snapshot     String?
+  validatedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, annee])
 }
 
 // ─── Abonnement ──────────────────────────────────────────

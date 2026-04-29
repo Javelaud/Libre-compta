@@ -1,31 +1,38 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 /**
- * GET — Retourne l'exercice courant (ou en crée un pour l'année en cours en dev).
- * Sera sécurisé avec la session utilisateur en Session 6.
+ * GET — Retourne (ou crée) un exercice fiscal pour l'année donnée (?annee=N),
+ * ou pour l'année en cours si non précisée.
  */
-export async function GET() {
-  const annee = new Date().getFullYear();
+export async function GET(request: NextRequest) {
+  const param = request.nextUrl.searchParams.get("annee");
+  const annee = param ? Number(param) : new Date().getFullYear();
+  if (!Number.isInteger(annee) || annee < 2000 || annee > 2100) {
+    return NextResponse.json({ error: "Année invalide" }, { status: 400 });
+  }
 
-  // Chercher un exercice ouvert pour l'année en cours
-  let exercice = await prisma.exerciceFiscal.findFirst({
-    where: { annee, statut: "OUVERT" },
+  // Trouver l'utilisateur (en dev : premier user, créé si absent)
+  let user = await prisma.user.findFirst();
+  if (!user && process.env.NODE_ENV === "development") {
+    user = await prisma.user.create({
+      data: {
+        email: "demo@libre-compta.fr",
+        nom: "Utilisateur Démo",
+        profession: "Profession libérale",
+      },
+    });
+  }
+  if (!user) {
+    return NextResponse.json({ error: "Utilisateur introuvable" }, { status: 401 });
+  }
+
+  // Chercher l'exercice pour cette année
+  let exercice = await prisma.exerciceFiscal.findUnique({
+    where: { userId_annee: { userId: user.id, annee } },
   });
 
-  // En dev : créer automatiquement un exercice + un utilisateur demo si besoin
-  if (!exercice && process.env.NODE_ENV === "development") {
-    let user = await prisma.user.findFirst();
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          email: "demo@libre-compta.fr",
-          nom: "Utilisateur Démo",
-          profession: "Profession libérale",
-        },
-      });
-    }
-
+  if (!exercice) {
     exercice = await prisma.exerciceFiscal.create({
       data: {
         userId: user.id,
@@ -34,10 +41,6 @@ export async function GET() {
         dateFin: new Date(`${annee}-12-31`),
       },
     });
-  }
-
-  if (!exercice) {
-    return NextResponse.json({ error: "Aucun exercice trouvé" }, { status: 404 });
   }
 
   return NextResponse.json(exercice);

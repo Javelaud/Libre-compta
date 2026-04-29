@@ -3,33 +3,44 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useYear, YEARS_AVAILABLE } from "@/contexts/YearContext";
 
-const navigation = [
+type NavItem = {
+  name: string;
+  href: string;
+  icon: (p: { className?: string }) => React.ReactElement;
+  badge?: boolean;
+  declaration?: boolean;
+};
+
+const navigation: NavItem[] = [
   { name: "Tableau de bord", href: "/dashboard", icon: LayoutIcon },
-  { name: "Saisie", href: "/saisie", icon: PenIcon },
+  { name: "Notes de frais", href: "/saisie", icon: PenIcon },
   { name: "Banque", href: "/banque", icon: BankIcon, badge: true },
   { name: "Grand livre", href: "/grand-livre", icon: BookIcon },
   { name: "Balance", href: "/balance", icon: ScaleIcon },
-  { name: "Déclaration 2035", href: "/declaration-2035", icon: FileIcon },
+  { name: "Déclaration 2035", href: "/declaration-2035", icon: FileIcon, declaration: true },
   { name: "Paramètres", href: "/parametres", icon: SettingsIcon },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const [badgeCount, setBadgeCount] = useState(0);
+  const [declarationValidee, setDeclarationValidee] = useState(false);
 
   useEffect(() => {
-    fetch("/api/banque/count")
-      .then((r) => r.json())
-      .then((d) => setBadgeCount(d.count ?? 0))
-      .catch(() => {});
-    // Rafraîchir toutes les 30s
-    const interval = setInterval(() => {
+    const refresh = () => {
       fetch("/api/banque/count")
         .then((r) => r.json())
         .then((d) => setBadgeCount(d.count ?? 0))
         .catch(() => {});
-    }, 30000);
+      fetch(`/api/declaration-2035?annee=${new Date().getFullYear()}`)
+        .then((r) => r.json())
+        .then((d) => setDeclarationValidee(d?.declaration?.statut === "VALIDEE"))
+        .catch(() => {});
+    };
+    refresh();
+    const interval = setInterval(refresh, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -66,16 +77,39 @@ export default function Sidebar() {
                   {badgeCount}
                 </span>
               )}
+              {item.declaration && declarationValidee && (
+                <span className="text-success" title="Déclaration validée">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                </span>
+              )}
             </Link>
           );
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="px-6 py-4 border-t border-white/10">
-        <p className="text-xs text-sidebar-text/60">Exercice 2025</p>
-      </div>
+      {/* Footer — sélecteur d'année */}
+      <YearSelector />
     </aside>
+  );
+}
+
+function YearSelector() {
+  const { year, setYear } = useYear();
+  return (
+    <div className="px-4 py-3 border-t border-white/10">
+      <label className="text-xs text-sidebar-text/60 block mb-1">Exercice fiscal</label>
+      <select
+        value={year}
+        onChange={(e) => setYear(Number(e.target.value))}
+        className="w-full bg-white/10 text-white text-sm rounded-md px-2 py-1.5 border border-white/10 focus:outline-none focus:ring-1 focus:ring-white/30 cursor-pointer hover:bg-white/15 transition-colors"
+      >
+        {YEARS_AVAILABLE.map((y) => (
+          <option key={y} value={y} className="text-foreground">{y}</option>
+        ))}
+      </select>
+    </div>
   );
 }
 

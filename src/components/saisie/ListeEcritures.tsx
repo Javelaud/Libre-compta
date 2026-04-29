@@ -26,7 +26,7 @@ export default function ListeEcritures({ exerciceId, refreshKey }: Props) {
 
   const fetchEcritures = useCallback(async () => {
     try {
-      const res = await fetch(`/api/ecritures?exerciceId=${exerciceId}`);
+      const res = await fetch(`/api/ecritures?exerciceId=${exerciceId}&source=notes-de-frais`);
       if (res.ok) {
         const data = await res.json();
         setEcritures(data);

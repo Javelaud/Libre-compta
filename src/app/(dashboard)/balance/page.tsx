@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import ExportCSV from "@/components/ExportCSV";
+import { useYear } from "@/contexts/YearContext";
 
 type LigneBalance = {
   code: string;
@@ -23,18 +24,20 @@ const formatMontant = (n: number) =>
   new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(n);
 
 export default function BalancePage() {
+  const { year } = useYear();
   const [exerciceId, setExerciceId] = useState<string | null>(null);
   const [data, setData] = useState<BalanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [filtre, setFiltre] = useState<"" | "RECETTE" | "DEPENSE">("");
 
   useEffect(() => {
-    fetch("/api/exercice/courant")
+    setExerciceId(null);
+    fetch(`/api/exercice/courant?annee=${year}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.id) setExerciceId(d.id);
       });
-  }, []);
+  }, [year]);
 
   const fetchData = useCallback(async () => {
     if (!exerciceId) return;

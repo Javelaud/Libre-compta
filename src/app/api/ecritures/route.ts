@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const exerciceId = searchParams.get("exerciceId");
   const sens = searchParams.get("sens");
+  const source = searchParams.get("source");
 
   if (!exerciceId) {
     return NextResponse.json(
@@ -18,6 +19,20 @@ export async function GET(request: NextRequest) {
   const where: Record<string, unknown> = { exerciceId };
   if (sens === "RECETTE" || sens === "DEPENSE") {
     where.sens = sens;
+  }
+
+  // source=notes-de-frais : exclure les écritures issues d'une validation bancaire
+  if (source === "notes-de-frais") {
+    const bankEcritures = await prisma.transactionBancaire.findMany({
+      where: { ecritureId: { not: null } },
+      select: { ecritureId: true },
+    });
+    const exclude = bankEcritures
+      .map((t) => t.ecritureId)
+      .filter((id): id is string => id !== null);
+    if (exclude.length > 0) {
+      where.id = { notIn: exclude };
+    }
   }
 
   const ecritures = await prisma.ecritureComptable.findMany({

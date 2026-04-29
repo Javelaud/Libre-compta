@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import RubriqueCombobox from "@/components/ui/RubriqueCombobox";
 
 type Rubrique = { code: string; libelle: string; type: string };
 type Transaction = {
@@ -37,6 +38,68 @@ export default function BanquePage() {
   const [counts, setCounts] = useState({ aCat: 0, val: 0, ign: 0 });
   const [showTVA, setShowTVA] = useState(false);
   const [tauxTVA, setTauxTVA] = useState(20);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  // Réinitialise la sélection quand on change d'onglet ou de filtre
+  useEffect(() => {
+    setSelected(new Set());
+  }, [tab, search]);
+
+  const toggleOne = (id: string) => {
+    setSelected((s) => {
+      const copy = new Set(s);
+      if (copy.has(id)) copy.delete(id);
+      else copy.add(id);
+      return copy;
+    });
+  };
+  const toggleAll = (allIds: string[], checked: boolean) => {
+    setSelected((s) => {
+      const copy = new Set(s);
+      if (checked) allIds.forEach((id) => copy.add(id));
+      else allIds.forEach((id) => copy.delete(id));
+      return copy;
+    });
+  };
+
+  // Solde progressif : la dernière (la plus récente) ligne affichée vaut le solde compte courant ;
+  // on remonte chronologiquement en soustrayant chaque montant.
+  const soldesProgressifs = useMemo(() => {
+    const map: Record<string, number> = {};
+    if (transactions.length === 0) return map;
+    const sumAll = transactions.reduce((s, t) => s + t.montant, 0);
+    let cum = solde - sumAll; // solde "avant" la 1ère opération chronologique
+    // transactions arrivent en DESC date — on itère en ASC chronologique
+    for (let i = transactions.length - 1; i >= 0; i--) {
+      cum += transactions[i].montant;
+      map[transactions[i].id] = cum;
+    }
+    return map;
+  }, [transactions, solde]);
+
+  const bulkDelete = async () => {
+    if (selected.size === 0) return;
+    if (
+      !confirm(
+        `Supprimer définitivement ${selected.size} transaction(s) ?\n\nLes écritures comptables liées (transactions validées) seront aussi supprimées.`
+      )
+    )
+      return;
+    const res = await fetch("/api/banque/transactions/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setImportResult(`${data.deleted} transaction(s) supprimée(s)`);
+      setSelected(new Set());
+      fetchTransactions();
+      fetchCounts();
+    } else {
+      setImportResult(data.error || "Erreur de suppression");
+    }
+  };
 
   useEffect(() => {
     Promise.all([
@@ -76,19 +139,27 @@ export default function BanquePage() {
   useEffect(() => { fetchCounts(); }, [fetchCounts]);
 
   // Import CSV
+  const [importing, setImporting] = useState(false);
   const handleImport = async (file: File) => {
+    setImporting(true);
     const formData = new FormData();
     formData.append("file", file);
-    const res = await fetch("/api/banque/import", { method: "POST", body: formData });
-    const data = await res.json();
-    if (res.ok) {
-      setImportResult(`${data.importees} importées, ${data.matchees} catégorisées auto, ${data.doublons} doublons ignorés`);
-      fetchTransactions();
-      fetchCounts();
-    } else {
-      setImportResult(data.error || "Erreur d'import");
+    try {
+      const res = await fetch("/api/banque/import", { method: "POST", body: formData });
+      const data = await res.json();
+      if (res.ok) {
+        setImportResult(
+          `${data.importees} importée(s), ${data.matchees} catégorisée(s) auto, ${data.doublons} doublon(s) ignoré(s)`
+        );
+        fetchTransactions();
+        fetchCounts();
+      } else {
+        setImportResult(data.error || "Erreur d'import");
+      }
+    } finally {
+      setImporting(false);
+      setShowImport(false);
     }
-    setShowImport(false);
   };
 
   // Mise à jour inline
@@ -127,6 +198,29 @@ export default function BanquePage() {
     } else {
       const data = await res.json();
       setImportResult(data.error || "Erreur lors de la dévalidation");
+    }
+  };
+
+  // Affectation IA — utilise Claude pour catégoriser les transactions inconnues
+  const [iaBusy, setIaBusy] = useState(false);
+  const categoriserIA = async () => {
+    if (iaBusy) return;
+    setIaBusy(true);
+    try {
+      const res = await fetch("/api/banque/transactions/categoriser-ia", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        const parts = [`IA : ${data.affectees}/${data.total} transaction(s) affectée(s)`];
+        if (data.faibles > 0) parts.push(`${data.faibles} confiance faible`);
+        if (data.rejetees > 0) parts.push(`${data.rejetees} rejet(s) (sens incohérent)`);
+        setImportResult(parts.join(" — "));
+        fetchTransactions();
+        fetchCounts();
+      } else {
+        setImportResult(data.error || "Erreur IA");
+      }
+    } finally {
+      setIaBusy(false);
     }
   };
 
@@ -200,23 +294,34 @@ export default function BanquePage() {
 
       {/* Modale import */}
       {showImport && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setShowImport(false)}>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => !importing && setShowImport(false)}>
           <div className="bg-card rounded-xl border border-border p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-primary mb-4">Importer un relevé bancaire</h3>
-            <div
-              className="border-2 border-dashed border-border rounded-xl p-8 text-center cursor-pointer hover:border-accent transition-colors"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleImport(f); }}
-            >
-              <p className="text-muted mb-2">Glissez-déposez votre fichier CSV</p>
-              <p className="text-xs text-muted mb-4">Formats supportés : BNP, Crédit Agricole, LCL, SG, CIC</p>
-              <label className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium cursor-pointer hover:bg-primary-light">
-                Parcourir
-                <input type="file" accept=".csv,.ofx,.txt" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImport(f); }} />
-              </label>
-            </div>
-            <button onClick={() => setShowImport(false)} className="w-full mt-4 text-muted text-sm hover:text-foreground">Annuler</button>
+            {importing ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-4">
+                <SpinnerIcon className="w-12 h-12 text-accent animate-spin" />
+                <p className="text-foreground font-medium">Import en cours…</p>
+                <p className="text-xs text-muted">Analyse du fichier et catégorisation automatique</p>
+              </div>
+            ) : (
+              <>
+                <div
+                  className="border-2 border-dashed border-border rounded-xl p-8 text-center cursor-pointer hover:border-accent transition-colors"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleImport(f); }}
+                >
+                  <p className="text-muted mb-2">Glissez-déposez votre fichier CSV</p>
+                  <p className="text-xs text-muted mb-4">Formats supportés : BNP, Crédit Agricole, LCL, SG, CIC</p>
+                  <label className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium cursor-pointer hover:bg-primary-light">
+                    Parcourir
+                    <input type="file" accept=".csv,.ofx,.txt" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImport(f); }} />
+                  </label>
+                </div>
+                <button onClick={() => setShowImport(false)} className="w-full mt-4 text-muted text-sm hover:text-foreground">Annuler</button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -245,13 +350,34 @@ export default function BanquePage() {
               Recalculer TVA
             </button>
             <button onClick={() => recalc("all")}
-              className="px-3 py-2 border border-accent text-accent rounded-lg bg-card text-sm hover:bg-accent hover:text-white transition-colors"
-              title="Réapplique tous les mots-clés (rubrique + sens + TVA) sur les transactions à catégoriser">
-              Réappliquer mots-clés
+              className="p-2 border border-accent text-accent rounded-lg bg-card hover:bg-accent hover:text-white transition-colors inline-flex items-center justify-center"
+              aria-label="Réappliquer mots-clés"
+              title="Applique la même catégorie à toutes les lignes qui ont le même mot clé en libellé">
+              <WandIcon className="w-4 h-4" />
+            </button>
+            <button onClick={categoriserIA}
+              disabled={iaBusy}
+              className="p-2 border border-accent text-accent rounded-lg bg-card hover:bg-accent hover:text-white transition-colors inline-flex items-center justify-center disabled:opacity-50 disabled:cursor-wait"
+              aria-label="Affectation automatique avancée par IA"
+              title="Affectations automatique avancées">
+              {iaBusy ? <SpinnerIcon className="w-4 h-4 animate-spin" /> : <BrainIcon className="w-4 h-4" />}
             </button>
           </>
         )}
-        <Link href="/banque/mots-cles" className="text-sm text-accent hover:underline">Mots-clés</Link>
+        <Link href="/banque/mots-cles"
+          className="p-2 border border-border rounded-lg bg-card text-muted hover:text-accent hover:border-accent transition-colors inline-flex items-center justify-center"
+          aria-label="Paramètres mots-clés"
+          title="Accès au paramètrage des mots clés">
+          <TagIcon className="w-4 h-4" />
+        </Link>
+        {selected.size > 0 && (
+          <button onClick={bulkDelete}
+            className="px-3 py-2 bg-danger text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors inline-flex items-center gap-1.5"
+            title="Supprimer les transactions sélectionnées (et leurs écritures comptables liées)">
+            <TrashIcon className="w-4 h-4" />
+            Supprimer ({selected.size})
+          </button>
+        )}
       </div>
 
       {/* Liste transactions */}
@@ -276,9 +402,20 @@ export default function BanquePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-background/30">
+                  <th className="px-3 py-2.5 w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Tout sélectionner"
+                      checked={transactions.length > 0 && transactions.every((t) => selected.has(t.id))}
+                      onChange={(e) => toggleAll(transactions.map((t) => t.id), e.target.checked)}
+                      className="cursor-pointer accent-primary"
+                    />
+                  </th>
                   <th className="text-left px-4 py-2.5 font-medium text-muted w-24">Date</th>
                   <th className="text-left px-4 py-2.5 font-medium text-muted max-w-[280px]">Libellé bancaire</th>
-                  <th className="text-right px-4 py-2.5 font-medium text-muted w-28">Montant</th>
+                  <th className="text-right px-4 py-2.5 font-medium text-danger w-24">Débit</th>
+                  <th className="text-right px-4 py-2.5 font-medium text-success w-24">Crédit</th>
+                  <th className="text-right px-4 py-2.5 font-medium text-muted w-28">Solde</th>
                   {showTVA && (
                     <th className="text-right px-4 py-2.5 font-medium text-muted w-24">TVA</th>
                   )}
@@ -294,8 +431,17 @@ export default function BanquePage() {
               <tbody>
                 {transactions.map((tx) => (
                   <tr key={tx.id} className={`border-b border-border last:border-0 hover:bg-background/50 ${
-                    tx.rubrique2035Code && tx.statut === "A_CATEGORISER" ? "bg-accent/5" : ""
+                    selected.has(tx.id) ? "bg-accent/10" : tx.rubrique2035Code && tx.statut === "A_CATEGORISER" ? "bg-accent/5" : ""
                   }`}>
+                    <td className="px-3 py-2.5 w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="Sélectionner"
+                        checked={selected.has(tx.id)}
+                        onChange={() => toggleOne(tx.id)}
+                        className="cursor-pointer accent-primary"
+                      />
+                    </td>
                     <td className="px-4 py-2.5 text-muted">{fmtDate(tx.date)}</td>
                     <td className="px-4 py-2.5 max-w-[280px]">
                       <div className="flex items-center gap-2">
@@ -311,8 +457,16 @@ export default function BanquePage() {
                         <span className="text-foreground truncate">{tx.libelleBancaire}</span>
                       </div>
                     </td>
-                    <td className={`px-4 py-2.5 text-right font-medium ${tx.montant >= 0 ? "text-success" : "text-danger"}`}>
-                      {fmt(tx.montant)}
+                    <td className="px-4 py-2.5 text-right font-medium text-danger tabular-nums">
+                      {tx.montant < 0 ? fmt(Math.abs(tx.montant)) : ""}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-medium text-success tabular-nums">
+                      {tx.montant > 0 ? fmt(tx.montant) : ""}
+                    </td>
+                    <td className={`px-4 py-2.5 text-right tabular-nums ${
+                      (soldesProgressifs[tx.id] ?? 0) >= 0 ? "text-foreground" : "text-danger"
+                    }`}>
+                      {fmt(soldesProgressifs[tx.id] ?? 0)}
                     </td>
                     {showTVA && (
                       <td className="px-4 py-2.5 text-right">
@@ -334,19 +488,16 @@ export default function BanquePage() {
                     )}
                     <td className="px-4 py-2.5">
                       {tab === "A_CATEGORISER" ? (
-                        <select value={tx.rubrique2035Code || ""}
-                          onChange={(e) => {
-                            const code = e.target.value;
-                            const rub = rubriques.find((r) => r.code === code);
+                        <RubriqueCombobox
+                          rubriques={rubriques}
+                          value={tx.rubrique2035Code || ""}
+                          onChange={(code, rub) => {
                             updateTransaction(tx.id, "rubrique2035Code", code);
-                            if (rub) updateTransaction(tx.id, "sens", rub.type);
+                            if (rub) updateTransaction(tx.id, "sens", rub.type ?? "");
                           }}
-                          className="w-full px-2 py-1 border border-border rounded text-xs bg-background">
-                          <option value="">—</option>
-                          {rubriques.map((r) => (
-                            <option key={r.code} value={r.code}>{r.code} — {r.libelle}</option>
-                          ))}
-                        </select>
+                          size="sm"
+                          placeholder="—"
+                        />
                       ) : tx.rubrique2035 ? (
                         <span className="bg-primary-lighter text-primary text-xs px-2 py-0.5 rounded">
                           {tx.rubrique2035Code} — {tx.rubrique2035.libelle}
@@ -426,6 +577,40 @@ function MinusCircleIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
+function WandIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.847.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
+    </svg>
+  );
+}
+
+function TagIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
+    </svg>
+  );
+}
+
+function BrainIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75A3.75 3.75 0 0112 3a3.75 3.75 0 013.75 3.75v.75M8.25 6.75a3 3 0 00-3 3v.75m3-3.75v3M15.75 7.5v-.75M15.75 7.5a3 3 0 013 3v.75M5.25 10.5v3a3 3 0 003 3v.75M5.25 10.5a3 3 0 00-3 3v3a3 3 0 003 3h.75M18.75 10.5v3a3 3 0 01-3 3v.75M18.75 10.5a3 3 0 013 3v3a3 3 0 01-3 3h-.75M8.25 17.25h.008v.008H8.25v-.008zm7.5 0h.008v.008h-.008v-.008z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5v9" />
+    </svg>
+  );
+}
+
+function SpinnerIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" strokeDasharray="50" strokeDashoffset="20" />
     </svg>
   );
 }

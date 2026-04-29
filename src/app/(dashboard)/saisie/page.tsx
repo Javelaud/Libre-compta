@@ -3,30 +3,33 @@
 import { useEffect, useState } from "react";
 import FormulaireEcriture from "@/components/saisie/FormulaireEcriture";
 import ListeEcritures from "@/components/saisie/ListeEcritures";
+import { useYear } from "@/contexts/YearContext";
 
 type UserProfil = { regimeTVA: string; tauxTVA: number };
 
 export default function SaisiePage() {
+  const { year } = useYear();
   const [exerciceId, setExerciceId] = useState<string | null>(null);
   const [profil, setProfil] = useState<UserProfil | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    setLoading(true);
     Promise.all([
-      fetch("/api/exercice/courant").then((r) => (r.ok ? r.json() : null)),
+      fetch(`/api/exercice/courant?annee=${year}`).then((r) => (r.ok ? r.json() : null)),
       fetch("/api/user/profil").then((r) => (r.ok ? r.json() : null)),
     ]).then(([ex, user]) => {
-      if (ex?.id) setExerciceId(ex.id);
+      setExerciceId(ex?.id ?? null);
       if (user) setProfil({ regimeTVA: user.regimeTVA, tauxTVA: user.tauxTVA });
       setLoading(false);
     });
-  }, []);
+  }, [year]);
 
   if (loading) {
     return (
       <div>
-        <h1 className="text-2xl font-bold text-primary mb-1">Saisie</h1>
+        <h1 className="text-2xl font-bold text-primary mb-1">Notes de frais</h1>
         <p className="text-muted mb-8">Chargement...</p>
       </div>
     );
@@ -35,7 +38,7 @@ export default function SaisiePage() {
   if (!exerciceId) {
     return (
       <div>
-        <h1 className="text-2xl font-bold text-primary mb-1">Saisie</h1>
+        <h1 className="text-2xl font-bold text-primary mb-1">Notes de frais</h1>
         <p className="text-muted mb-8">
           Impossible de charger l&apos;exercice. Vérifiez votre connexion à la base de données.
         </p>
@@ -49,8 +52,8 @@ export default function SaisiePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-primary mb-1">Saisie</h1>
-      <p className="text-muted mb-6">Enregistrez vos recettes et dépenses professionnelles</p>
+      <h1 className="text-2xl font-bold text-primary mb-1">Notes de frais</h1>
+      <p className="text-muted mb-6">Dépenses ou recettes payées avec votre compte personnel à prendre en charge par l&apos;activité professionnelle</p>
 
       <div className="grid lg:grid-cols-2 gap-6">
         <FormulaireEcriture
